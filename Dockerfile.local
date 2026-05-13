@@ -1,0 +1,17 @@
+FROM rust:1.95-bookworm AS builder
+WORKDIR /app
+COPY Cargo.toml Cargo.lock* ./
+COPY src ./src
+RUN cargo build --release
+
+FROM debian:bookworm-slim AS certs
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+
+FROM gcr.io/distroless/cc-debian12
+WORKDIR /app
+COPY --from=builder /app/target/release/tokenrouter /app/tokenrouter
+COPY frontend/dist /app/frontend/dist
+COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+ENV RUN_MODE=server
+ENV LISTEN_ADDR=0.0.0.0:8080
+CMD ["/app/tokenrouter"]

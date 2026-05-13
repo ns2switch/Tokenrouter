@@ -1,0 +1,28 @@
+[package]
+name = "tokenrouter"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1"
+async-stream = "0.3"
+axum = { version = "0.7", features = ["macros"] }
+bytes = "1"
+chrono = { version = "0.4", features = ["serde"] }
+dotenvy = "0.15"
+futures = "0.3"
+lambda_http = "0.13"
+reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls"] }
+aws-config = "1"
+aws-sdk-dynamodb = "1"
+sha2 = "0.10"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tiktoken-rs = "0.6"
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.6", features = ["trace", "set-header", "cors", "fs", "compression-gzip"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+async-trait = "0.1"
+prometheus = "0.14.0"

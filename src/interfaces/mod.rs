@@ -1,0 +1,11 @@
+pub mod admin;
+pub mod admin_auth;
+pub mod audio;
+pub mod completions;
+pub mod dto;
+pub mod embeddings;
+pub mod error;
+pub mod images;
+pub mod metrics;
+pub mod provider;
+pub mod proxy;

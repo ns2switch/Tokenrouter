@@ -1,0 +1,52 @@
+services:
+  dynamodb-local:
+    image: amazon/dynamodb-local:latest
+    container_name: tokenrouter-dynamodb
+    command: "-jar DynamoDBLocal.jar -sharedDb -inMemory"
+    ports:
+      - "8000:8000"
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.local
+    container_name: tokenrouter-app
+    depends_on:
+      - dynamodb-local
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      NIM_BASE_URL: ${NIM_BASE_URL:-https://integrate.api.nvidia.com}
+      NIM_API_KEY: ${NIM_API_KEY:-replace-me}
+      DDB_API_KEYS_TABLE: api_keys
+      DDB_PROVIDERS_TABLE: providers
+      DDB_PRICING_TABLE: pricing_config
+      DDB_TRANSACTIONS_TABLE: transactions
+      DDB_TRANSACTIONS_TIMELINE_TABLE: transactions_timeline
+      DDB_IDEMPOTENCY_TABLE: idempotency_keys
+      DDB_METRICS_TABLE: metrics_global
+      API_KEY_HASH_SECRET: ${API_KEY_HASH_SECRET:-dev-secret}
+      IDEMPOTENCY_TTL_SECONDS: ${IDEMPOTENCY_TTL_SECONDS:-86400}
+      ADMIN_BEARER_TOKEN: ${ADMIN_BEARER_TOKEN:-change-me}
+      ADMIN_BEARER_TOKENS: ${ADMIN_BEARER_TOKENS:-}
+      PROVIDER_NAME_PREFIX: ${PROVIDER_NAME_PREFIX:-TokenRouter}
+      PROVIDER_QUANTIZATION: ${PROVIDER_QUANTIZATION:-fp16}
+      PROVIDER_CONTEXT_LENGTH: ${PROVIDER_CONTEXT_LENGTH:-128000}
+      PROVIDER_MAX_OUTPUT_LENGTH: ${PROVIDER_MAX_OUTPUT_LENGTH:-8192}
+      PROVIDER_DATACENTER_COUNTRY: ${PROVIDER_DATACENTER_COUNTRY:-US}
+      MAX_INFLIGHT_REQUESTS: ${MAX_INFLIGHT_REQUESTS:-200}
+      MAX_INFLIGHT_PER_KEY: ${MAX_INFLIGHT_PER_KEY:-10}
+      MAX_OUTPUT_TOKENS: ${MAX_OUTPUT_TOKENS:-16384}
+      UPSTREAM_TIMEOUT_SECONDS: ${UPSTREAM_TIMEOUT_SECONDS:-300}
+      MAX_STREAMING_DURATION_SECONDS: ${MAX_STREAMING_DURATION_SECONDS:-600}
+      REQUEST_CACHE_TTL_SECONDS: ${REQUEST_CACHE_TTL_SECONDS:-3600}
+      REQUEST_CACHE_MAX_ENTRIES: ${REQUEST_CACHE_MAX_ENTRIES:-1000}
+      REQUEST_CACHE_MAX_RESPONSE_BYTES: ${REQUEST_CACHE_MAX_RESPONSE_BYTES:-65536}
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_ENDPOINT_URL_DYNAMODB: http://host.docker.internal:8000
+      RUN_MODE: server
+      LISTEN_ADDR: 0.0.0.0:8080
+    ports:
+      - "8080:8080"
