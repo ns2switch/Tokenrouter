@@ -508,6 +508,7 @@ where
 {
     let mut full_output = String::new();
     let mut done_seen = false;
+    let mut error_seen = false;
     let keepalive_every = Duration::from_secs(15);
     let max_duration = Duration::from_secs(max_streaming_seconds);
     let mut first_token_at: Option<Instant> = None;
@@ -539,11 +540,18 @@ where
                         break;
                     }
                     if let Ok(v) = serde_json::from_str::<Value>(data) {
-                        if let Some(delta) = v
+                        let first_choice = v
                             .get("choices")
                             .and_then(|c| c.as_array())
-                            .and_then(|a| a.first())
-                            .and_then(|c| c.get("delta"))
+                            .and_then(|a| a.first());
+                        if first_choice
+                            .and_then(|c| c.get("finish_reason"))
+                            .and_then(|r| r.as_str())
+                            == Some("error")
+                        {
+                            error_seen = true;
+                        }
+                        if let Some(delta) = first_choice.and_then(|c| c.get("delta"))
                         {
                             if let Some(content) =
                                 delta.get("content").and_then(|v| v.as_str())
@@ -598,48 +606,59 @@ where
         let total_tokens = input_tokens + output_tokens;
         let revenue_generated = (total_tokens as f64 / 1_000_000.0) * sell_price_per_1m;
 
-        if let Err(e) = repo
-            .record_transaction(
-                &api_key,
-                &model_name,
-                input_tokens,
-                output_tokens,
-                cost_basis,
-                revenue_generated,
-                &idempotency_key,
-                &request_hash,
-                idempotency_ttl_seconds,
-                &full_output,
-            )
-            .await
-        {
-            let msg = e.to_string();
-            if msg.contains("TransactionCanceledException") || msg.contains("ConditionalCheckFailed") {
-                if let Ok(Some(rec)) = repo.get_idempotency_record(&idempotency_key).await {
-                    if rec.request_hash == request_hash {
-                        if let Some(stored_text) = rec.response_body {
-                            let chunk = sse_content_chunk(&model_name, &stored_text);
-                            yield Bytes::from(chunk);
-                            if include_usage {
-                                let replay_out = billing_service.count_tokens(&stored_text) as i64;
-                                yield Bytes::from(sse_usage_chunk(input_tokens, replay_out));
+        let status_code = if error_seen {
+            StatusCode::BAD_GATEWAY.as_u16()
+        } else {
+            StatusCode::OK.as_u16()
+        };
+
+        if !error_seen {
+            if let Err(e) = repo
+                .record_transaction(
+                    &api_key,
+                    &model_name,
+                    input_tokens,
+                    output_tokens,
+                    cost_basis,
+                    revenue_generated,
+                    &idempotency_key,
+                    &request_hash,
+                    idempotency_ttl_seconds,
+                    &full_output,
+                )
+                .await
+            {
+                let msg = e.to_string();
+                if msg.contains("TransactionCanceledException")
+                    || msg.contains("ConditionalCheckFailed")
+                {
+                    if let Ok(Some(rec)) = repo.get_idempotency_record(&idempotency_key).await {
+                        if rec.request_hash == request_hash {
+                            if let Some(stored_text) = rec.response_body {
+                                let chunk = sse_content_chunk(&model_name, &stored_text);
+                                yield Bytes::from(chunk);
+                                if include_usage {
+                                    let replay_out =
+                                        billing_service.count_tokens(&stored_text) as i64;
+                                    yield Bytes::from(sse_usage_chunk(input_tokens, replay_out));
+                                }
                             }
                         }
                     }
+                    log_request_metrics(
+                        runtime_metrics.as_ref(),
+                        &model_name,
+                        req_started,
+                        first_token_at,
+                        input_tokens,
+                        output_tokens,
+                        StatusCode::OK.as_u16(),
+                    );
+                    yield Bytes::from_static(b"data: [DONE]\n\n");
+                    return;
                 }
-                log_request_metrics(
-                    runtime_metrics.as_ref(),
-                    &model_name,
-                    req_started,
-                    first_token_at,
-                    input_tokens,
-                    output_tokens,
-                    StatusCode::OK.as_u16(),
-                );
-                yield Bytes::from_static(b"data: [DONE]\n\n");
-                return;
+                Err(to_io(msg))?;
             }
-            Err(to_io(msg))?;
         }
 
         log_request_metrics(
@@ -649,9 +668,11 @@ where
             first_token_at,
             input_tokens,
             output_tokens,
-            StatusCode::OK.as_u16(),
+            status_code,
         );
-        request_cache.put(&cache_key, &full_output, input_tokens, output_tokens);
+        if !error_seen {
+            request_cache.put(&cache_key, &full_output, input_tokens, output_tokens);
+        }
         if include_usage {
             yield Bytes::from(sse_usage_chunk(input_tokens, output_tokens));
         }

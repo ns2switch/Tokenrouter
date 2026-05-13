@@ -26,7 +26,15 @@ impl RuntimeMetrics {
     }
 
     pub fn dec_inflight(&self) {
-        self.inflight.fetch_sub(1, Ordering::Relaxed);
+        let _ = self
+            .inflight
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
+                if v > 0 {
+                    Some(v - 1)
+                } else {
+                    Some(0)
+                }
+            });
     }
 
     pub fn inflight(&self) -> i64 {

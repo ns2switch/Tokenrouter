@@ -38,13 +38,19 @@ impl PerKeyLimiter {
     }
 
     fn maybe_cleanup(&self) {
-        let mut last = self.last_cleanup.lock().expect("last_cleanup poisoned");
-        if last.elapsed() < CLEANUP_INTERVAL {
-            return;
+        let needs_cleanup = {
+            let mut last = self.last_cleanup.lock().expect("last_cleanup poisoned");
+            if last.elapsed() < CLEANUP_INTERVAL {
+                false
+            } else {
+                *last = Instant::now();
+                true
+            }
+        };
+        if needs_cleanup {
+            let mut map = self.counts.lock().expect("per_key_counts poisoned");
+            map.retain(|_, v| *v > 0);
         }
-        let mut map = self.counts.lock().expect("per_key_counts poisoned");
-        map.retain(|_, v| *v > 0);
-        *last = Instant::now();
     }
 
     pub fn acquire_guard(self: &Arc<Self>, key: &str) -> Option<PerKeyGuard> {

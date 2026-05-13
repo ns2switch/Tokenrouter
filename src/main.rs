@@ -46,7 +46,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Semaphore;
 use tower_http::compression::CompressionLayer;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
@@ -103,6 +103,7 @@ async fn main() -> anyhow::Result<()> {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(600u64);
+    let cors_allow_origin = env::var("CORS_ALLOW_ORIGIN").ok();
 
     let default_provider = Provider {
         id: "default".to_string(),
@@ -186,6 +187,7 @@ async fn main() -> anyhow::Result<()> {
         runtime_metrics,
         max_output_tokens,
         max_streaming_seconds,
+        upstream_timeout_seconds: upstream_timeout,
         client: Client::builder()
             .timeout(Duration::from_secs(upstream_timeout))
             .connect_timeout(Duration::from_secs(10))
@@ -267,6 +269,18 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    let cors_layer = if let Some(ref origin) = cors_allow_origin {
+        CorsLayer::new()
+            .allow_origin(AllowOrigin::exact(origin.parse().unwrap()))
+            .allow_methods(Any)
+            .allow_headers(Any)
+    } else {
+        CorsLayer::new()
+            .allow_origin(Any)
+            .allow_methods(Any)
+            .allow_headers(Any)
+    };
+
     let app = Router::new()
         .route("/v1/chat/completions", post(chat_completions))
         .route("/v1/completions", post(completions))
@@ -286,12 +300,7 @@ async fn main() -> anyhow::Result<()> {
         .nest("/admin", admin_router)
         .fallback(get(spa_fallback))
         .with_state(app_state)
-        .layer(
-            CorsLayer::new()
-                .allow_origin(Any)
-                .allow_methods(Any)
-                .allow_headers(Any),
-        )
+        .layer(cors_layer)
         .layer(CompressionLayer::new())
         .layer(DefaultBodyLimit::max(8 * 1024 * 1024))
         .layer(SetResponseHeaderLayer::if_not_present(

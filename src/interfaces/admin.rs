@@ -122,7 +122,7 @@ pub async fn transactions_json(
     State(state): State<Arc<AppState>>,
     Query(q): Query<DashboardQuery>,
 ) -> impl IntoResponse {
-    let empty = crate::domain::entities::RecentTransactionsPage {
+    let empty_page = crate::domain::entities::RecentTransactionsPage {
         transactions: vec![],
         next_cursor: None,
         prev_cursor: None,
@@ -132,19 +132,28 @@ pub async fn transactions_json(
             .repo
             .recent_transactions_page_backward(100, &prev_sk)
             .await
-            .unwrap_or(empty)
+            .unwrap_or_else(|e| {
+                tracing::error!(%e, "failed to load transactions page (backward)");
+                empty_page
+            })
     } else {
         state
             .repo
             .recent_transactions_page(100, q.cursor)
             .await
-            .unwrap_or(empty)
+            .unwrap_or_else(|e| {
+                tracing::error!(%e, "failed to load transactions page");
+                empty_page
+            })
     };
     axum::Json(page)
 }
 
 pub async fn pricing_json(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let pricing = state.repo.all_pricing().await.unwrap_or_default();
+    let pricing = state.repo.all_pricing().await.unwrap_or_else(|e| {
+        tracing::error!(%e, "failed to load pricing list");
+        vec![]
+    });
     axum::Json(pricing)
 }
 
@@ -279,24 +288,20 @@ pub async fn toggle_key(
     State(state): State<Arc<AppState>>,
     Json(q): Json<ToggleKeyQuery>,
 ) -> Response {
-    let keys = match state.repo.list_api_keys().await {
-        Ok(k) => k,
-        Err(e) => {
-            tracing::error!(%e, "failed to list keys for toggle");
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                axum::Json(serde_json::json!({"error": "internal server error"})),
-            )
-                .into_response();
-        }
-    };
-
-    let target = match keys.iter().find(|k| k.id == q.id) {
-        Some(k) => k,
-        None => {
+    let target = match state.repo.find_api_key_by_id(&q.id).await {
+        Ok(Some(k)) => k,
+        Ok(None) => {
             return (
                 StatusCode::NOT_FOUND,
                 axum::Json(serde_json::json!({"error": "key not found"})),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!(%e, %q.id, "failed to find key for toggle");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                axum::Json(serde_json::json!({"error": "internal server error"})),
             )
                 .into_response();
         }
@@ -334,24 +339,20 @@ pub async fn update_key_limit(
     State(state): State<Arc<AppState>>,
     Json(q): Json<UpdateKeyQuery>,
 ) -> Response {
-    let keys = match state.repo.list_api_keys().await {
-        Ok(k) => k,
-        Err(e) => {
-            tracing::error!(%e, "failed to list keys for credit update");
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                axum::Json(serde_json::json!({"error": "internal server error"})),
-            )
-                .into_response();
-        }
-    };
-
-    let target = match keys.iter().find(|k| k.id == q.id) {
-        Some(k) => k,
-        None => {
+    let target = match state.repo.find_api_key_by_id(&q.id).await {
+        Ok(Some(k)) => k,
+        Ok(None) => {
             return (
                 StatusCode::NOT_FOUND,
                 axum::Json(serde_json::json!({"error": "key not found"})),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!(%e, %q.id, "failed to find key for credit update");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                axum::Json(serde_json::json!({"error": "internal server error"})),
             )
                 .into_response();
         }
@@ -393,24 +394,20 @@ pub async fn delete_key(
     State(state): State<Arc<AppState>>,
     Json(q): Json<ToggleKeyQuery>,
 ) -> Response {
-    let keys = match state.repo.list_api_keys().await {
-        Ok(k) => k,
-        Err(e) => {
-            tracing::error!(%e, "failed to list keys for deletion");
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                axum::Json(serde_json::json!({"error": "internal server error"})),
-            )
-                .into_response();
-        }
-    };
-
-    let target = match keys.iter().find(|k| k.id == q.id) {
-        Some(k) => k,
-        None => {
+    let target = match state.repo.find_api_key_by_id(&q.id).await {
+        Ok(Some(k)) => k,
+        Ok(None) => {
             return (
                 StatusCode::NOT_FOUND,
                 axum::Json(serde_json::json!({"error": "key not found"})),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!(%e, %q.id, "failed to find key for deletion");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                axum::Json(serde_json::json!({"error": "internal server error"})),
             )
                 .into_response();
         }

@@ -21,4 +21,5 @@ pub struct AppState {
     pub client: Client,
     pub max_output_tokens: i64,
     pub max_streaming_seconds: u64,
+    pub upstream_timeout_seconds: u64,
 }

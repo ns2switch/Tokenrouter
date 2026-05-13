@@ -130,6 +130,28 @@ impl ApiKeyPort for DynamoDbStore {
             .map(|opt| opt.filter(|k| k.active))
     }
 
+    async fn find_api_key_by_id(&self, id: &str) -> anyhow::Result<Option<ApiKey>> {
+        let mut eav = HashMap::new();
+        eav.insert(":id".to_string(), av_s(id));
+        let mut ean = HashMap::new();
+        ean.insert("#id".to_string(), "id".to_string());
+        let out = self
+            .client
+            .scan()
+            .table_name(&self.api_keys_table)
+            .filter_expression("#id = :id")
+            .set_expression_attribute_names(Some(ean))
+            .set_expression_attribute_values(Some(eav))
+            .limit(1)
+            .send()
+            .await?;
+        out.items()
+            .first()
+            .map(parse_api_key)
+            .transpose()
+            .map(|opt| opt.filter(|k| k.active))
+    }
+
     async fn list_api_keys(&self) -> anyhow::Result<Vec<ApiKey>> {
         let mut items = Vec::new();
         let mut start_key: Option<HashMap<String, AttributeValue>> = None;
@@ -653,6 +675,38 @@ impl TransactionPort for DynamoDbStore {
         }
 
         result?;
+        Ok(())
+    }
+
+    async fn store_idempotency_record(
+        &self,
+        idempotency_key: &str,
+        request_hash: &str,
+        ttl_seconds: i64,
+        response_body: &str,
+    ) -> anyhow::Result<()> {
+        let now_dt = Utc::now();
+        let now = now_dt.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+        let expires_at = now_dt.timestamp() + ttl_seconds.max(60);
+        let tx_id = Uuid::new_v4().to_string();
+
+        let mut item = HashMap::new();
+        item.insert("idempotency_key".to_string(), av_s(idempotency_key));
+        item.insert("transaction_id".to_string(), av_s(&tx_id));
+        item.insert("created_at".to_string(), av_s(&now));
+        item.insert("request_hash".to_string(), av_s(request_hash));
+        item.insert("expires_at".to_string(), av_n(&expires_at.to_string()));
+        if !response_body.is_empty() {
+            item.insert("response_body".to_string(), av_s(response_body));
+        }
+
+        self.client
+            .put_item()
+            .table_name(&self.idempotency_table)
+            .set_item(Some(item))
+            .condition_expression("attribute_not_exists(idempotency_key)")
+            .send()
+            .await?;
         Ok(())
     }
 

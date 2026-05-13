@@ -11,8 +11,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::timeout;
 
-const UPSTREAM_TIMEOUT: Duration = Duration::from_secs(60);
-
 pub async fn completions(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -238,8 +236,9 @@ async fn do_completions(state: Arc<AppState>, headers: HeaderMap, mut payload: V
         }
     }
 
+    let upstream_timeout = Duration::from_secs(state.upstream_timeout_seconds);
     let resp = match timeout(
-        UPSTREAM_TIMEOUT,
+        upstream_timeout,
         state
             .client
             .post(&upstream_url)

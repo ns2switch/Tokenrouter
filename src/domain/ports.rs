@@ -23,6 +23,7 @@ pub struct RuntimeMetricsSnapshot {
 #[async_trait]
 pub trait ApiKeyPort: Send + Sync {
     async fn find_api_key_by_hash(&self, hash: &str) -> anyhow::Result<Option<ApiKey>>;
+    async fn find_api_key_by_id(&self, id: &str) -> anyhow::Result<Option<ApiKey>>;
     async fn list_api_keys(&self) -> anyhow::Result<Vec<ApiKey>>;
     async fn create_api_key(
         &self,
@@ -92,6 +93,14 @@ pub trait TransactionPort: Send + Sync {
         idempotency_key: &str,
         request_hash: &str,
         idempotency_ttl_seconds: i64,
+        response_body: &str,
+    ) -> anyhow::Result<()>;
+
+    async fn store_idempotency_record(
+        &self,
+        idempotency_key: &str,
+        request_hash: &str,
+        ttl_seconds: i64,
         response_body: &str,
     ) -> anyhow::Result<()>;
 

@@ -8,12 +8,24 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "Dockerfile"
+      - "Dockerfile.local"
+      - "frontend/**"
       - "terraform/**"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        type: choice
+        default: 'production'
+        options:
+          - production
+          - staging
 
 env:
   AWS_REGION: us-east-1
-  ECR_REPOSITORY: tokenrouter-production
-  LAMBDA_FUNCTION: tokenrouter-production
+  ECR_REPOSITORY: ${{ github.event.inputs.environment == 'staging' && 'tokenrouter-staging' || 'tokenrouter-production' }}
+  LAMBDA_FUNCTION: ${{ github.event.inputs.environment == 'staging' && 'tokenrouter-staging' || 'tokenrouter-production' }}
 
 jobs:
   deploy:

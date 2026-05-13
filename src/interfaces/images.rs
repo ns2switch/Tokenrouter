@@ -10,8 +10,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::timeout;
 
-const UPSTREAM_TIMEOUT: Duration = Duration::from_secs(120);
-
 pub async fn generations(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -93,8 +91,39 @@ async fn do_image_generations(
     };
     let upstream_url = ProviderRegistry::endpoint_url(&provider, "/v1/images/generations");
 
+    let idempotency_key = headers
+        .get("idempotency-key")
+        .and_then(|v| v.to_str().ok())
+        .filter(|v| !v.is_empty())
+        .map(|v| v.to_string())
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let payload_json = serde_json::to_string(&payload).unwrap_or_default();
+    let request_hash = crate::security::hash_payload(&payload_json, &state.api_key_hash_secret);
+
+    if let Ok(Some(rec)) = state.repo.get_idempotency_record(&idempotency_key).await {
+        if rec.request_hash == request_hash {
+            if let Some(body) = rec.response_body {
+                if let Ok(replayed) = serde_json::from_str::<Value>(&body) {
+                    let mut resp = (StatusCode::OK, axum::Json(replayed)).into_response();
+                    let remaining = state.inflight_limit.available_permits().to_string();
+                    resp.headers_mut().insert(
+                        HeaderName::from_static("x-ratelimit-remaining-requests"),
+                        HeaderValue::from_str(&remaining).unwrap_or(HeaderValue::from_static("0")),
+                    );
+                    return resp;
+                }
+            }
+            return error_response(StatusCode::CONFLICT, "duplicate idempotency key");
+        }
+        return error_response(
+            StatusCode::CONFLICT,
+            "idempotency key reused with different payload",
+        );
+    }
+
+    let upstream_timeout = Duration::from_secs(state.upstream_timeout_seconds);
     let resp = match timeout(
-        UPSTREAM_TIMEOUT,
+        upstream_timeout,
         state
             .client
             .post(&upstream_url)
@@ -128,6 +157,16 @@ async fn do_image_generations(
     }
 
     let body_json: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+    let response_body_str = serde_json::to_string(&body_json).unwrap_or_default();
+    let _ = state
+        .repo
+        .store_idempotency_record(
+            &idempotency_key,
+            &request_hash,
+            state.idempotency_ttl_seconds,
+            &response_body_str,
+        )
+        .await;
     (status, axum::Json(body_json)).into_response()
 }
 

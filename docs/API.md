@@ -202,24 +202,23 @@ All require authentication via Bearer token or session cookie.
 ```
 The `raw_key` is returned **only once**. Store it securely.
 
-#### `GET /admin/keys/toggle?id=<id>&active=<bool>` — Enable/disable
+#### `POST /admin/keys/toggle` — Enable/disable
 ```json
 {"id": "uuid", "active": false}
 ```
 
-#### `GET /admin/keys/limit?id=<id>&credit_limit=<n>` — Update credit limit
+#### `POST /admin/keys/limit` — Update credit limit
 ```json
-{"id": "uuid", "credit_limit": 500.0}
+{"id": "uuid", "credit_limit": "500.0"}
+```
+Omit `credit_limit` or pass empty string to remove the limit:
+```json
+{"id": "uuid", "credit_limit": ""}
 ```
 
-#### `GET /admin/keys/limit?id=<id>` — Remove credit limit
+#### `POST /admin/keys/delete` — Delete key
 ```json
-{"id": "uuid", "credit_limit": null}
-```
-
-#### `GET /admin/keys/delete?id=<id>` — Delete key
-```json
-{"deleted": "uuid"}
+{"id": "uuid"}
 ```
 
 ---
@@ -243,7 +242,11 @@ The `raw_key` is returned **only once**. Store it securely.
 }
 ```
 
-#### `GET /admin/pricing/delete?model=<name>` — Delete pricing
+#### `POST /admin/pricing/delete` — Delete pricing
+```json
+{"model": "google/gemma-2-2b-it"}
+```
+Response:
 ```json
 {"deleted": "google/gemma-2-2b-it"}
 ```
